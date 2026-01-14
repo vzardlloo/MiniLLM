@@ -485,7 +485,7 @@ class MiniLLMModel(nn.Module):
         return hidden_states, presents, aux_loss
 
 
-
+# 定义MiniLLM模型的因果语言模型类,继承Hugging Face PreTrainedModel的功能
 class MiniLLMForCausalLM(PreTrainedModel, GenerationMixin):
     config_class = MiniLLMConfig
 
