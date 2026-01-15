@@ -33,7 +33,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
         X = X.to(args.device)
         Y = Y.to(args.device)
         loss_mask = loss_mask.to(args.device)
-        #  动态学习率调整，采用余弦退火算法，根据当前训练步数和总训练步数，计算当前学习率
+        # 动态学习率调整，采用余弦退火算法，根据当前训练步数和总训练步数，计算当前学习率
         lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
         # 更新参数组,将计算出的学习率赋值给优化器的参数组,确保优化器在训练过程中使用的学习率是动态调整的
         for param_group in optimizer.param_groups:
@@ -83,7 +83,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
 
             if wandb: wandb.log({"loss": current_loss, "logits_loss": current_logits_loss, "aux_loss": current_aux_loss,
                                  "learning_rate": current_lr, "epoch_time": eta_min})
-
+        # 模型保存
         if (step % args.save_interval == 0 or step == iters - 1) and is_main_process():
             model.eval()
             ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}.pth'
@@ -125,12 +125,13 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default="MiniLLM-Pretrain", help="wandb项目名")
     args = parser.parse_args()
 
-    # 1. 初始化环境和随机种子
+    # 1. 初始化分布式训练环境和随机种子
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
+    # 如果是分布式环境, 每个进程使用不同的随机种子，单机模式就是固定种子
     setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
 
-    #  2. 配置目录、模型参数、检查checkpoint
+    #  2. 配置目录、模型参数、检查checkpoint(支持断点续训)
     os.makedirs(args.save_dir, exist_ok=True)
     lm_config = MiniLLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
                                use_moe=bool(args.use_moe))
@@ -145,15 +146,15 @@ if __name__ == "__main__":
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
     autocast_ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
 
-    # 4. 配wandb, 用于可视化训练过程
-    # https://wandb.ai/
+    # 4. 国产开源swanlab代替wandb, 用于可视化训练过程
+    # https://swanlab.cn
     wandb = None
     if args.use_wandb and is_main_process():
         import swanlab as wandb
 
         wandb_id = ckp_data.get('wandb_id') if ckp_data else None
         resume = 'must' if wandb_id else None
-        wandb_run_name = f"MiniMind-Pretrain-Epoch-{args.epochs}-BatchSize-{args.batch_size}-LearningRate-{args.learning_rate}"
+        wandb_run_name = f"MiniLLM-Pretrain-Epoch-{args.epochs}-BatchSize-{args.batch_size}-LearningRate-{args.learning_rate}"
         wandb.init(project=args.wandb_project, name=wandb_run_name, id=wandb_id, resume=resume)
 
     # 5. 定义模型、数据、优化器
@@ -172,8 +173,9 @@ if __name__ == "__main__":
         start_epoch = ckp_data['epoch']
         start_step = ckp_data.get('step', 0)
 
-    # 7. DDP包模型
+    # 7. DistributedDataParallel包装模型,支持并行训练
     if dist.is_initialized():
+        # 忽略一些静态变量
         model._ddp_params_and_buffers_to_ignore = {"freqs_cos", "freqs_sin"}
         model = DistributedDataParallel(model, device_ids=[local_rank])
 

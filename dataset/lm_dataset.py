@@ -5,6 +5,22 @@ from datasets import load_dataset
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # 预训练数据集-继承自torch.utils.data.Dataset。Dataset是PyTorch中用于创建自定义数据集的基类。
+# 示例：
+# 假设我们有一个句子："我爱学习"，经过tokenizer处理后得到：
+# input_ids = [101, 2769, 4263, 1962, 102]  # 假设101是[CLS]，102是[SEP]
+# 代码执行过程：
+# # 原始序列: [101, 2769, 4263, 1962, 102]
+# X = input_ids[:-1]  # 去掉最后一个标记 → [101, 2769, 4263, 1962]
+# Y = input_ids[1:]   # 去掉第一个标记 → [2769, 4263, 1962, 102]
+# 训练任务对应关系：
+# 输入X: [101, 2769, 4263, 1962]  → 模型需要预测
+# 目标Y: [2769, 4263, 1962, 102]  → 下一个标记
+#
+# 具体预测任务：
+# - 给定[101] → 预测2769("我")
+# - 给定[101, 2769] → 预测4263("爱")
+# - 给定[101, 2769, 4263] → 预测1962("学习")
+# - 给定[101, 2769, 4263, 1962] → 预测102([SEP])
 class PretrainDataset(Dataset):
     def __init__(self, data_path, tokenizer, max_length=512):
         super().__init__()

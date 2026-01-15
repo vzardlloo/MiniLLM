@@ -318,7 +318,7 @@ class MiniLLMModel(nn.Module):
         return hidden_states, presents, aux_loss
 
 
-# 使用MiniLLM模型作为因果应答场景模型（继承Hugging Face PreTrainedModel的功能）
+# 使用MiniLLM模型作为因果语言模型（继承Hugging Face PreTrainedModel的功能）
 # 主要就是将输入序列转换为预测的下一个 token 概率分布
 class MiniLLMForCausalLM(PreTrainedModel, GenerationMixin):
     config_class = MiniLLMConfig
