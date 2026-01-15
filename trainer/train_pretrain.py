@@ -39,9 +39,6 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         # 启用混合精度训练（FP16/FP32），平衡训练速度与数值稳定性
-        #  FP32(Float32): 精度极高，计算结果准确，但是 显存占用大、计算速度慢
-        #  FP16(Float16): 精度较低，计算结果可能会有一定误差，但是 显存占用小、计算速度快
-        #  混合精度训练 = FP16 计算 + FP32 兜底,在模型训练的「大部分计算环节」使用 FP16（提速、省显存），只在「对精度敏感的核心环节」保留 FP32（保证训练稳定、不丢模型效果）
         with autocast_ctx:
             # 前向传播：返回包含 logits（模型预测）和 aux_loss（辅助损失）的结果
             res = model(X)
@@ -89,8 +86,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
 
         if (step % args.save_interval == 0 or step == iters - 1) and is_main_process():
             model.eval()
-            moe_suffix = '_moe' if lm_config.use_moe else ''
-            ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
+            ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}.pth'
             if isinstance(model, torch.nn.parallel.DistributedDataParallel):
                 state_dict = model.module.state_dict()
             else:
@@ -122,7 +118,6 @@ if __name__ == "__main__":
     parser.add_argument('--hidden_size', default=512, type=int, help="隐藏层维度")
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="隐藏层数量")
     parser.add_argument('--max_seq_len', default=340, type=int, help="训练的最大截断长度（中文1token≈1.5~1.7字符）")
-    parser.add_argument('--use_moe', default=0, type=int, choices=[0, 1], help="是否使用MoE架构（0=否，1=是）")
     parser.add_argument("--data_path", type=str, default="../dataset/pretrain_hq.jsonl", help="预训练数据路径")
     parser.add_argument('--from_weight', default='none', type=str, help="基于哪个权重训练，为none则从头开始")
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
@@ -130,24 +125,28 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default="MiniLLM-Pretrain", help="wandb项目名")
     args = parser.parse_args()
 
-    # ========== 1. 初始化环境和随机种子 ==========
+    # 1. 初始化环境和随机种子
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
     setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
 
-    # ========== 2. 配置目录、模型参数、检查ckp ==========
+    #  2. 配置目录、模型参数、检查checkpoint
     os.makedirs(args.save_dir, exist_ok=True)
     lm_config = MiniLLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
                                use_moe=bool(args.use_moe))
     ckp_data = lm_checkpoint(lm_config, weight=args.save_weight,
                              save_dir='../checkpoints') if args.from_resume == 1 else None
 
-    # ========== 3. 设置混合精度 ==========
+    # 3. 设置混合精度
+    # FP32(Float32): 精度极高，计算结果准确，但是 显存占用大、计算速度慢
+    # FP16(Float16): 精度较低，计算结果可能会有一定误差，但是 显存占用小、计算速度快
+    # 混合精度训练 = FP16 计算 + FP32 兜底,在模型训练的「大部分计算环节」使用 FP16（提速、省显存），只在「对精度敏感的核心环节」保留 FP32（保证训练稳定、不丢模型效果）
     device_type = "cuda" if "cuda" in args.device else "cpu"
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
     autocast_ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
 
-    # ========== 4. 配wandb ==========
+    # 4. 配wandb, 用于可视化训练过程
+    # https://wandb.ai/
     wandb = None
     if args.use_wandb and is_main_process():
         import swanlab as wandb
@@ -157,14 +156,14 @@ if __name__ == "__main__":
         wandb_run_name = f"MiniMind-Pretrain-Epoch-{args.epochs}-BatchSize-{args.batch_size}-LearningRate-{args.learning_rate}"
         wandb.init(project=args.wandb_project, name=wandb_run_name, id=wandb_id, resume=resume)
 
-    # ========== 5. 定义模型、数据、优化器 ==========
+    # 5. 定义模型、数据、优化器
     model, tokenizer = init_model(lm_config, args.from_weight, device=args.device)
     train_ds = PretrainDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
 
-    # ========== 6. 从ckp恢复状态 ==========
+    # 6. 从checkpoint恢复状态
     start_epoch, start_step = 0, 0
     if ckp_data:
         model.load_state_dict(ckp_data['model'])
@@ -173,12 +172,12 @@ if __name__ == "__main__":
         start_epoch = ckp_data['epoch']
         start_step = ckp_data.get('step', 0)
 
-    # ========== 7. DDP包模型 ==========
+    # 7. DDP包模型
     if dist.is_initialized():
         model._ddp_params_and_buffers_to_ignore = {"freqs_cos", "freqs_sin"}
         model = DistributedDataParallel(model, device_ids=[local_rank])
 
-    # ========== 8. 开始训练 ==========
+    # 8. 开始训练
     for epoch in range(start_epoch, args.epochs):
         train_sampler and train_sampler.set_epoch(epoch)
         if epoch == start_epoch and start_step > 0:  # 第一个epoch且存在检查点
@@ -191,5 +190,5 @@ if __name__ == "__main__":
                                 sampler=train_sampler, num_workers=args.num_workers, pin_memory=True)
             train_epoch(epoch, loader, len(loader), 0, wandb)
 
-    # ========== 9. 清理分布进程 ==========
+    #  9. 清理分布进程
     if dist.is_initialized(): dist.destroy_process_group()
