@@ -53,7 +53,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             loss = logits_loss + res.aux_loss
             # 梯度累积缩放,总损失除以累积步数
             loss = loss / args.accumulation_steps
-        # 由于是使用FP16进行训练，需要对损失进行缩放，避免梯度下溢(梯度变为0，导致模型无法更新),注意这里进行缩放之后,计算出的梯度的结果也会被缩放,后续要记得反缩放
+        # 由于是使用FP16进行训练，需要对损失进行缩放，避免梯度消失(梯度变为0，导致模型无法更新),注意这里进行缩放之后,计算出的梯度的结果也会被缩放,后续要记得反缩放
         # 然后进行反向传播,根据loss计算梯度
         scaler.scale(loss).backward()
 
