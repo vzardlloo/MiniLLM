@@ -160,7 +160,9 @@ if __name__ == "__main__":
     model, tokenizer = init_model(lm_config, args.from_weight, device=args.device)
     train_ds = PretrainDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
+    # 梯度缩放器
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
+    # 优化器
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     # 6. 从checkpoint恢复状态
