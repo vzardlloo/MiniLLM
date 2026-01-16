@@ -4,13 +4,13 @@
 
 ## 项目运行
 ### 个人环境配置分享
-- CPU: Intel Xeon(Ice Lake) Platinum 8336C
+- CPU: Intel(R) Xeon(R) Platinum 8336C CPU @ 2.30GHz
 - RAM: 468 GiB
-- GPU: NVIDIA A30 * 2
+- GPU: NVIDIA A30 24GB
 - Linux: Linux-5.15.0-91-generic-x86_64-with-glibc2.35
-- Ubuntu=22.04.4 LTS
-- CUDA==12.4
-- Python==3.10.12
+- Ubuntu: 22.04.4 LTS
+- CUDA: 12.4
+- Python: 3.10.12
 
 ## 运行项目
 1. 克隆项目仓库
