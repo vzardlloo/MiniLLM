@@ -4,7 +4,7 @@ import os
 from datasets import load_dataset
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# 预训练数据集，用于模型的初始训练，让模型学会从文本中提取特征。
+# 预训练数据集，用于自回归模型的初始训练，让模型学会利用序列的历史信息（前文），逐一步预测下一个时刻的输出（后文）。
 # 示例：
 # 假设有一个句子："我爱学习"，经过tokenizer处理后得到：
 # input_ids = [101, 2769, 4263, 1962, 102]  # 假设101是[CLS]，102是[SEP]
