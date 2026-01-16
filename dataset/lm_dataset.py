@@ -4,9 +4,9 @@ import os
 from datasets import load_dataset
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# 预训练数据集-继承自torch.utils.data.Dataset。Dataset是PyTorch中用于创建自定义数据集的基类。
+# 预训练数据集，用于模型的初始训练，让模型学会从文本中提取特征。
 # 示例：
-# 假设我们有一个句子："我爱学习"，经过tokenizer处理后得到：
+# 假设有一个句子："我爱学习"，经过tokenizer处理后得到：
 # input_ids = [101, 2769, 4263, 1962, 102]  # 假设101是[CLS]，102是[SEP]
 # 代码执行过程：
 # # 原始序列: [101, 2769, 4263, 1962, 102]
@@ -55,19 +55,33 @@ class PretrainDataset(Dataset):
         loss_mask = torch.tensor(loss_mask[1:], dtype=torch.long)
         return X, Y, loss_mask
 
-
+# 监督微调（Supervised Fine-Tuning, SFT）数据集,让模型学会和人对话的对话格式
+# 数据示例：{"conversations": [{"role": "user", "content": "你好"}, {"role": "assistant", "content": "你好！有什么我可以帮助你的吗？"}]}
 class SFTDataset(Dataset):
     def __init__(self, jsonl_path, tokenizer, max_length=1024):
         super().__init__()
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.samples = load_dataset('json', data_files=jsonl_path, split='train')
+        # 计算以 BOS（Beginning of Sequence）标记开头并跟随 "assistant" 字符串的 token ID 序列
         self.bos_id = tokenizer(f'{tokenizer.bos_token}assistant', add_special_tokens=False).input_ids
+        # 计算 EOS（End of Sequence）标记的 token ID 序列
         self.eos_id = tokenizer(f'{tokenizer.eos_token}', add_special_tokens=False).input_ids
 
     def __len__(self):
         return len(self.samples)
 
+    # 将数据集里面的对话样本转换为模型可以理解的格式
+    # 示例：
+    # 输入：[
+    #     {"role": "user", "content": "你好"},
+    #     {"role": "assistant", "content": "你好！有什么我可以帮助你的吗？"}
+    # ]
+    # 输出：
+    # <s>user
+    # 你好
+    # assistant
+    # 你好！有什么我可以帮助你的吗？
     def create_chat_prompt(self, cs):
         messages = cs.copy()
         tools = cs[0]["functions"] if (cs and cs[0]["role"] == "system" and cs[0].get("functions")) else None
@@ -78,6 +92,7 @@ class SFTDataset(Dataset):
             tools=tools
         )
 
+    # 生成损失掩码，帮助训练时只计算助手回复的loss，忽略其他内容
     def generate_loss_mask(self, input_ids):
         loss_mask = [0] * len(input_ids)
         i = 0
