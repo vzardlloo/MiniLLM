@@ -15,7 +15,7 @@
 ## 运行项目
 1. 克隆项目仓库
    ```bash
-   git clone https://code.byted.org/minibase/MiniLLM.git
+   git clone https://github.com/vzardlloo/MiniLLM.git
    cd MiniLLM
    ```
 2. 安装依赖
